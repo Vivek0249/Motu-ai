@@ -1,5 +1,12 @@
-package com.motu.ai.ui.screens
 
+package com.motu.ai.ui.screens
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.runtime.DisposableEffect
+import com.motu.ai.voice.VoiceAssistant
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -61,6 +68,40 @@ import java.util.Locale
 fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var voiceError by remember { mutableStateOf("") }
+
+    val voiceAssistant = remember {
+        VoiceAssistant(
+            context = context,
+            onResult = { recognizedText -> viewModel.submit(recognizedText) },
+            onVoiceError = { error -> voiceError = error }
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) voiceAssistant.startListening()
+        else voiceError = "Microphone permission required"
+    }
+
+    DisposableEffect(voiceAssistant) {
+        onDispose { voiceAssistant.destroy() }
+    }
+
+    val startVoice = {
+        if (
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            voiceAssistant.startListening()
+        } else {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var now by remember { mutableStateOf(LocalDateTime.now()) }
@@ -79,7 +120,6 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val timeFormat = remember { DateTimeFormatter.ofPattern("hh:mm a", Locale.getDefault()) }
     val dateFormat = remember { DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.getDefault()) }
     var draft by rememberSaveable { mutableStateOf("") }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -154,7 +194,14 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             )
 
             Spacer(Modifier.height(8.dp))
-            MicButton(listening = state.listening, onClick = viewModel::toggleListening)
+            MicButton(listening = state.listening, onClick = { startVoice() })
+
+            if (voiceError.isNotBlank()) {
+                Text(
+                    text = voiceError,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
 
